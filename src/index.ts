@@ -5,6 +5,8 @@ import cors = require('cors')
 import multer = require('multer')
 import { urlencoded, json } from 'body-parser'
 import { SlowMemoryStorage } from './slow-memory-storage'
+import expressJwt = require('express-jwt')
+import jwt = require('jsonwebtoken')
 
 import {
   writeFile,
@@ -48,6 +50,7 @@ const saveFile = async (request: Request, response: Response, filename: string) 
 export interface Options {
   port?: number
   route: string
+  useToken?: boolean
   chunkNumber?: string
   totalSize?: string
   verbose?: boolean
@@ -60,6 +63,10 @@ interface Exp {
   close(): Promise<void>
 }
 
+const SECRET = 'ƐᄅƖʇǝɹɔǝs'
+const OneDay = 3600 * 24
+const ADMIN = 'lovecraft'
+
 const exp: Exp = {
   _server: null,
   init(options: Options) {
@@ -70,12 +77,53 @@ const exp: Exp = {
 
     const app = express()
     app.use(
+      expressJwt({
+        secret: SECRET,
+        algorithms: ['HS256'],
+        credentialsRequired: options.useToken ?? false,
+      }).unless({ path: ['/token'] })
+    )
+    app.use(
       urlencoded({
         extended: true,
       })
     )
     app.use(json())
     app.use(cors())
+
+    app.get(`/token`, (request, response) => {
+      const expiresIn = Number(request.query.expiresIn ?? OneDay)
+      const expiresAt = Date.now() / 1000 + expiresIn
+      const token =
+        'Bearer ' +
+        jwt.sign(
+          {
+            _id: ADMIN,
+          },
+          SECRET,
+          {
+            expiresIn,
+          }
+        )
+      logger.info(
+        `Generated a new token that will be expired at '${new Date(
+          expiresAt * 1000
+        ).toLocaleString('zh-CN', { hour12: false })}'`
+      )
+      response.json({
+        status: 'ok',
+        data: { token, expiresAt: expiresAt * 1000 },
+      })
+    })
+
+    app.get(`/protected`, (request, response) => {
+      const user = (request as any).user
+      console.log('protected', user)
+      if (user._id !== ADMIN) {
+        return response.sendStatus(401)
+      }
+      response.json({ status: 'ok' })
+    })
 
     app.get(`/${options.route}/:filename/size`, (request, response) => {
       const result = getFileSize(request.params.filename)
@@ -131,6 +179,7 @@ const exp: Exp = {
       this._server = express.listen(options.port, () => {
         logger.info('Server ready. Configuration:')
         logger.info('  * Port: %d', options.port)
+        logger.info('  * Use Token: %s', options.useToken)
         logger.info('  * Routes: %s', `/${options.route}`)
         logger.info('  * Verbose: %s', options.verbose ? 'yes' : 'no')
         resolve()

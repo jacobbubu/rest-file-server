@@ -19,6 +19,11 @@ This tool was modified from [express-rest-file-server](https://github.com/bitIO/
 npm install @jacobbubu/rest-file-server
 ```
 
+Start server:
+```
+npm start
+```
+
 ### Upload and Download
 
 ``` bash
@@ -29,6 +34,28 @@ THEN get it back,
 
 ``` bash
 curl http://localhost:8080/files/README.md
+```
+
+### Enable JWT token
+
+Start server:
+
+```
+npm start -- --useToken=true
+```
+
+### Get Token
+
+```
+curl http://localhost:8080/token?expiresIn=100
+```
+
+`expiresIn` indicates the number of seconds after which the token timed out, which can be a negative value. The default value is one day.
+
+### Upload
+
+```
+curl -X POST -F "file=@README.md" http://localhost:8080/files -H "Authorization: Bearer eyJhbGciOiJI..."
 ```
 
 Please see test cases for more usage.

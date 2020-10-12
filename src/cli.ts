@@ -8,6 +8,7 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'
 const opt = nodegetopt
   .create([
     ['p', 'port=PORT', 'server port (default 5000)'],
+    ['', 'usetoken=true', 'whether to enable token authentication'],
     ['', 'chunknumber=CHUNKNUMBER', "chunk number parameter (default 'chunknumber')"],
     ['', 'totalsize=TOTALSIZE', "total size parameter (default 'totalsize')"],
     ['', 'route=flies', "the API starting path (default '/files')"],
@@ -29,6 +30,7 @@ if (opt.verbose) {
 // tslint:disable-next-line no-floating-promises
 server.run({
   port: Number(opt.port || process.env.PORT || 8080),
+  useToken: opt.usetoken === 'true',
   chunkNumber: opt.chunknumber as string,
   totalSize: opt.totalsize as string,
   route: (opt.route as string) || 'files',
