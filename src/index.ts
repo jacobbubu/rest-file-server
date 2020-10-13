@@ -118,7 +118,6 @@ const exp: Exp = {
 
     app.get(`/protected`, (request, response) => {
       const user = (request as any).user
-      console.log('protected', user)
       if (user._id !== ADMIN) {
         return response.sendStatus(401)
       }
