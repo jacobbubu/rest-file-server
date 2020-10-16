@@ -1,13 +1,21 @@
 import { readFileSync, unlinkSync } from 'fs'
 import { Stream } from 'stream'
 import logger from './log'
+import escapeStringRegexp = require('escape-string-regexp')
 
 export interface FileInfo {
   age: number
   buffer?: Buffer | null
   filepath?: string
   size?: number
+  chunkSize: number
   stream?: Stream
+}
+
+export interface ChunkInfo {
+  chunkNum: number
+  size: number
+  chunkSize: number
 }
 
 const files: Record<string, FileInfo> = {}
@@ -24,6 +32,33 @@ const size = (filename: string) => files[filename].size
 
 const read = (filename: string) => files[filename].buffer || readFileSync(files[filename].filepath!)
 
+const getMatchedFileInfos = (pattern: string | RegExp) => {
+  const result: ChunkInfo[] = []
+  const keys = Object.keys(files)
+  for (let i = 0; i < keys.length; i++) {
+    const filename = keys[i]
+    const info = files[filename]
+    if (typeof pattern === 'string') {
+      result.push({ chunkNum: 1, size: info.size!, chunkSize: info.chunkSize })
+      return result
+    }
+    const matched = filename.match(pattern)
+    if (matched) {
+      result.push({ chunkNum: Number(matched[1]), size: info.size!, chunkSize: info.chunkSize })
+    }
+  }
+  result.sort((a, b) => {
+    if (a.chunkNum > b.chunkNum) {
+      return 1
+    } else if (a.chunkNum < b.chunkNum) {
+      return -1
+    } else {
+      return 0
+    }
+  })
+  return result
+}
+
 const remove = (filename: string) => {
   const file = files[filename]
   if (file.filepath) {
@@ -39,6 +74,7 @@ const write = (filename: string, buffer: Buffer | null, fileSize?: number, filep
     buffer,
     filepath,
     size: buffer ? buffer.length : fileSize,
+    chunkSize: buffer ? buffer.length : 0,
   }
   logger.debug(`File saved ${files[filename]}`)
 }
@@ -69,7 +105,7 @@ export const writeFile = (file: Express.Multer.File) => {
 }
 
 export const writeFileChunk = (filename: string, buffer: Buffer, chunkNumber: number) => {
-  logger.debug(`Storing ${filename} chunk ${chunkNumber}`)
+  logger.debug(`Storing ${filename} chunk ${chunkNumber} with size ${buffer.length}`)
   write(`${filename}.${chunkNumber}.chunk`, buffer)
   return result(200)
 }
@@ -120,4 +156,20 @@ export const removeFile = (filename: string) => {
   }
   logger.error(`Removing ${filename} not found`)
   return result(404)
+}
+
+export const getChunkedFileInfos = (filename: string) => {
+  let len
+  if (exists(filename)) {
+    len = size(filename)!
+    return result(200, [{ chunkNum: 1, size: len, chunkSize: len }])
+  }
+  const fileInfos = getMatchedFileInfos(
+    new RegExp('^' + escapeStringRegexp(filename) + '\\.(\\d+)\\.chunk$')
+  )
+  if (fileInfos.length === 0) {
+    return result(404)
+  } else {
+    return result(200, fileInfos)
+  }
 }

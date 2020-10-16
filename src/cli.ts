@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import nodegetopt = require('node-getopt')
 import logger, { setLogLevel } from './log'
-import server from '.'
+import { FileServer } from '.'
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'))
 
 const opt = nodegetopt
@@ -28,7 +28,7 @@ if (opt.verbose) {
 }
 
 // tslint:disable-next-line no-floating-promises
-server.run({
+const server = new FileServer({
   port: Number(opt.port || process.env.PORT || 8080),
   useToken: opt.usetoken === 'true',
   chunkNumber: opt.chunknumber as string,
@@ -36,3 +36,6 @@ server.run({
   route: (opt.route as string) || 'files',
   verbose: !!opt.verbose,
 })
+
+// tslint:disable-next-line no-floating-promises
+server.listen()

@@ -3,22 +3,25 @@ import * as path from 'path'
 import concat = require('concat-stream')
 import superagent = require('superagent')
 import through = require('through2')
-import server from '../src'
-import { nextTick } from 'process'
+import { FileServer } from '../src'
 
 const ROUTE = 'files'
 const PORT = 8080
 const TestFileFolder = path.resolve(__dirname, 'test-files')
 
+let _server: FileServer | null = null
+
 beforeAll(async () => {
-  await server.run({
+  _server = new FileServer({
     port: PORT,
     route: ROUTE,
+    logLevel: 'ERROR',
   })
+  await _server.listen()
 })
 
 afterAll(async () => {
-  await server.close()
+  await _server!.close()
 })
 
 describe('chunk', () => {
@@ -27,6 +30,7 @@ describe('chunk', () => {
     const fileName = '1k.txt'
     const filePath = path.join(TestFileFolder, fileName)
     const chunkSize = 200
+    const expectedSize = fs.statSync(filePath).size
 
     fs.createReadStream(filePath).pipe(
       getChunkableStream(chunkSize, async (chunk, index, len) => {
@@ -36,13 +40,33 @@ describe('chunk', () => {
         }
 
         async function drain(totalSize: number) {
+          const res = await superagent.get(url + '/' + fileName + '/info')
+          expect(res.body).toEqual([
+            { chunkNum: 1, size: chunkSize, chunkSize: chunkSize },
+            { chunkNum: 2, size: chunkSize, chunkSize: chunkSize },
+            { chunkNum: 3, size: chunkSize, chunkSize: chunkSize },
+            { chunkNum: 4, size: chunkSize, chunkSize: chunkSize },
+            { chunkNum: 5, size: chunkSize, chunkSize: chunkSize },
+            { chunkNum: 6, size: 24, chunkSize: 24 },
+          ])
+
           await superagent
             .post(url + `/assemble/${fileName}`)
             .send({ filename: fileName, totalsize: totalSize })
 
           superagent.get(url + '/' + fileName).pipe(
-            concat((result) => {
+            concat(async (result) => {
+              // for now, we check assembled file
               expect(result.toString()).toBe(fs.readFileSync(filePath).toString())
+
+              const res = await superagent.get(url + '/' + fileName + '/info')
+              expect(res.body).toEqual([
+                {
+                  chunkNum: 1,
+                  size: expectedSize,
+                  chunkSize: expectedSize,
+                },
+              ])
               done()
             })
           )

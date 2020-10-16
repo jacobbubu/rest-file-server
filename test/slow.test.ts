@@ -2,21 +2,25 @@ import * as fs from 'fs'
 import * as path from 'path'
 import concat = require('concat-stream')
 import superagent = require('superagent')
-import server from '../src'
+import { FileServer } from '../src'
 
 const ROUTE = 'files'
 const PORT = 8080
 const TestFileFolder = path.resolve(__dirname, 'test-files')
 
+let _server: FileServer | null = null
+
 beforeAll(async () => {
-  await server.run({
+  _server = new FileServer({
     port: PORT,
     route: ROUTE,
+    logLevel: 'ERROR',
   })
+  await _server.listen()
 })
 
 afterAll(async () => {
-  await server.close()
+  await _server!.close()
 })
 
 describe('slow', () => {

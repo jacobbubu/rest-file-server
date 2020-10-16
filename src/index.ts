@@ -15,11 +15,14 @@ import {
   removeFile,
   writeFileChunk,
   assembleFileChunks,
+  getChunkedFileInfos,
+  ChunkInfo,
 } from './file-service'
 import logger, { setLogLevel } from './log'
 import { delay } from './util'
 
 export { delay } from './util'
+export { ChunkInfo }
 
 const saveFile = async (request: Request, response: Response, filename: string) => {
   logger.verbose('Saving file: %o %s', request.file, filename)
@@ -54,24 +57,16 @@ export interface Options {
   chunkNumber?: string
   totalSize?: string
   verbose?: boolean
+  logLevel?: string
 }
 
-interface Exp {
-  _server: Server | null
-  init(options: Options): Express
-  run(options: Options): Promise<void>
-  close(): Promise<void>
-}
+export class FileServer {
+  private _expressApp: Express
+  private _httpServer: Server | null = null
 
-const SECRET = 'ƐᄅƖʇǝɹɔǝs'
-const OneDay = 3600 * 24
-const ADMIN = 'lovecraft'
-
-const exp: Exp = {
-  _server: null,
-  init(options: Options) {
-    if (process.env.NODE_ENV === 'test') {
-      setLogLevel('ERROR')
+  constructor(private readonly _options: Options) {
+    if (_options.logLevel) {
+      setLogLevel(_options.logLevel)
     }
     const upload = multer({ storage: new SlowMemoryStorage() })
 
@@ -80,7 +75,7 @@ const exp: Exp = {
       expressJwt({
         secret: SECRET,
         algorithms: ['HS256'],
-        credentialsRequired: options.useToken ?? false,
+        credentialsRequired: _options.useToken ?? false,
       }).unless({ path: ['/token'] })
     )
     app.use(
@@ -124,78 +119,91 @@ const exp: Exp = {
       response.json({ status: 'ok' })
     })
 
-    app.get(`/${options.route}/:filename/size`, (request, response) => {
+    app.get(`/${_options.route}/:filename/size`, (request, response) => {
       const result = getFileSize(request.params.filename)
       response.status(result.status).send(result.data)
     })
 
-    app.get(`/${options.route}/:filename`, (request, response) => {
+    app.get(`/${_options.route}/:filename/info`, (request, response) => {
+      const result = getChunkedFileInfos(request.params.filename)
+      response.status(result.status).send(result.data as ChunkInfo[])
+    })
+
+    app.get(`/${_options.route}/:filename`, (request, response) => {
       const result = readFile(request.params.filename)
 
       response.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-disposition': 'attachment;filename=' + result.filename ?? 'temp.dat',
-        // 'Content-Length': data.length
       })
       response.end(result.data, 'binary')
     })
-    app.delete(`/${options.route}/:filename`, (request, response) => {
+
+    app.delete(`/${_options.route}/:filename`, (request, response) => {
       const result = removeFile(request.params.filename)
       response.status(result.status)
     })
 
-    app.post(`/${options.route}`, upload.single('file'), async (request, response) => {
+    app.post(`/${_options.route}`, upload.single('file'), async (request, response) => {
       await saveFile(request, response, request.file.originalname)
     })
 
-    app.post(`/${options.route}/:filename`, upload.single('file'), async (request, response) => {
+    app.post(`/${_options.route}/:filename`, upload.single('file'), async (request, response) => {
       await saveFile(request, response, request.params.filename)
     })
 
-    app.post(`/${options.route}/chunk/:filename`, upload.single('file'), (request, response) => {
+    app.post(`/${_options.route}/chunk/:filename`, upload.single('file'), (request, response) => {
       const result = writeFileChunk(
         request.params.filename,
         request.file.buffer,
-        request.body[options.chunkNumber || 'chunknumber']
+        request.body[_options.chunkNumber || 'chunknumber']
       )
       response.status(result.status).send(result.data)
     })
 
-    app.post(`/${options.route}/assemble/:filename`, (request, response) => {
+    app.post(`/${_options.route}/assemble/:filename`, (request, response) => {
       const result = assembleFileChunks(
         request.params.filename,
-        request.body[options.totalSize || 'totalsize']
+        request.body[_options.totalSize || 'totalsize']
       )
       response.status(result.status).send(result.data)
     })
 
-    return app
-  },
+    this._expressApp = app
+  }
 
-  run(options: Options): Promise<void> {
+  get options() {
+    return this._options
+  }
+
+  listen(): Promise<Server> {
     return new Promise((resolve) => {
-      const express = this.init(options)
-      this._server = express.listen(options.port, () => {
+      const opts = this.options
+      this._httpServer = this._expressApp.listen(opts.port, () => {
         logger.info('Server ready. Configuration:')
-        logger.info('  * Port: %d', options.port)
-        logger.info('  * Use Token: %s', options.useToken)
-        logger.info('  * Routes: %s', `/${options.route}`)
-        logger.info('  * Verbose: %s', options.verbose ? 'yes' : 'no')
-        resolve()
+        logger.info('  * Port: %d', opts.port)
+        logger.info('  * Use Token: %s', opts.useToken)
+        logger.info('  * Routes: %s', `/${opts.route}`)
+        logger.info('  * Verbose: %s', opts.verbose ? 'yes' : 'no')
+        resolve(this._httpServer!)
       })
     })
-  },
+  }
 
-  close() {
+  close(): Promise<void> {
     return new Promise((resolve) => {
-      if (this._server) {
-        this._server.close(() => {
-          this._server = null
+      if (this._httpServer) {
+        this._httpServer.close(() => {
+          this._httpServer = null
           resolve()
         })
+      } else {
+        resolve()
       }
     })
-  },
+  }
 }
 
-export default exp
+const SECRET = 'ƐᄅƖʇǝɹɔǝs'
+const OneDay = 3600 * 24
+const ADMIN = 'lovecraft'
