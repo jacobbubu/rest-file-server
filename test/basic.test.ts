@@ -37,11 +37,18 @@ describe('basic', () => {
     })
 
     superagent.get(url + '/' + fileName).pipe(
-      concat((result) => {
+      concat(async (result) => {
         const elapsed = Date.now() - startTime
         expect(elapsed).toBeLessThan(500)
         expect(result.toString('utf8')).toBe(expectedContent)
-        done()
+
+        await superagent.del(url + '/' + fileName)
+        try {
+          await superagent.get(url + '/' + fileName)
+        } catch (err) {
+          expect(err.status).toBe(404)
+          done()
+        }
       })
     )
   })

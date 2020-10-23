@@ -131,17 +131,21 @@ export class FileServer {
 
     app.get(`/${_options.route}/:filename`, (request, response) => {
       const result = readFile(request.params.filename)
+      if (result.status >= 200 && result.status < 300) {
+        response.writeHead(result.status, {
+          'Content-Type': 'application/octet-stream',
+          'Content-disposition': 'attachment;filename=' + result.filename ?? 'temp.dat',
+        })
+        response.end(result.data, 'binary')
 
-      response.writeHead(200, {
-        'Content-Type': 'application/octet-stream',
-        'Content-disposition': 'attachment;filename=' + result.filename ?? 'temp.dat',
-      })
-      response.end(result.data, 'binary')
+        return
+      }
+      response.status(result.status).send(result.data)
     })
 
     app.delete(`/${_options.route}/:filename`, (request, response) => {
       const result = removeFile(request.params.filename)
-      response.status(result.status)
+      response.status(result.status).send({})
     })
 
     app.post(`/${_options.route}`, upload.single('file'), async (request, response) => {
